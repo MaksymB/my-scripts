@@ -13,12 +13,12 @@ import sys
 g_config_verbose = False
 g_config_in_place = False
 g_config_dry_run = False
-g_config_exiftool = False
+g_config_exiftool = True
 
 def mov_creation_date(file_path):
     if g_config_exiftool:
         output = subprocess.check_output(['exiftool',
-                                          '-time:CreateDate',
+                                          '-time:CreationDate',
                                           file_path])
         substrs = output.split(b': ')
 
@@ -27,7 +27,14 @@ def mov_creation_date(file_path):
                 print("Can't parse exiftool output. Make sure it is installed")
             return None
 
-        return substrs[1].strip().decode("utf-8").replace(':', '-')
+        substrs2 = substrs[1].split(b'+')
+
+        if len(substrs2) != 2 and len(substrs2) != 1:
+            if g_config_verbose:
+                print("Can't parse exiftool output. Make sure it is installed")
+            return None
+
+        return substrs2[0].strip().decode("utf-8").replace(':', '-')
 
     ATOM_HEADER_SIZE = 8
 
@@ -100,12 +107,14 @@ def find_files(input_paths, *masks):
     return list(filter(lambda p: os.path.isfile(p), input_paths)) + \
            [input_file for input_dir in filter(lambda p: os.path.isdir(p), input_paths)
                               for mask in masks
-                              for input_file 
+                              for input_file
                                   in glob.iglob(input_dir + '/**/' + mask,
                                                 recursive=True)]
 
 def process_files(input_files, extract_creation_date, ext):
     all_files = {}
+
+    processed_files_count = 0
 
     for input_file_path in input_files:
         creation_date = extract_creation_date(input_file_path)
@@ -122,7 +131,7 @@ def process_files(input_files, extract_creation_date, ext):
 
         # Sort from larger to smaller so untrimmed and higher resolution files
         # will come first in the list
-        same_creation_date_files.sort(key=lambda tup: tup[1], reverse = True) 
+        same_creation_date_files.sort(key=lambda tup: tup[1], reverse = True)
 
         count = 0
         for (input_file_path, _) in same_creation_date_files:
@@ -133,14 +142,19 @@ def process_files(input_files, extract_creation_date, ext):
             if g_config_in_place:
                 output_file_path = os.path.join(dir_path,
                                                 f'{creation_date}{suffix}.{ext}')
-                
+
                 if os.path.exists(output_file_path):
                     if input_file_path != output_file_path:
                         print(f'Cannot move {input_file_path} to {output_file_path}')
                 else:
                     move_file(input_file_path, output_file_path)
+                    processed_files_count += 1
+            else:
+                print('Error: out-of-place modification is not implemented')
 
             count += 1
+
+    print(f'Processed {processed_files_count} file(s)')
 
 def main():
     global g_config_verbose
@@ -163,15 +177,15 @@ def main():
                         help='put output files next to the input files')
     parser.add_argument('--dry', action="store_true", default=g_config_dry_run,
                         help='dry run, print what is going to be done and exit')
-    parser.add_argument('--exiftool', action="store_true", default=g_config_exiftool,
-                        help='use system exiftool (must be installed)')
+    parser.add_argument('--no-exiftool', action="store_true", default=not g_config_exiftool,
+                        help='don\'t use system exiftool (if not installed)')
 
     args = parser.parse_args()
 
     g_config_verbose = args.verbose
     g_config_in_place = args.in_place
     g_config_dry_run = args.dry
-    g_config_exiftool = args.exiftool
+    g_config_exiftool = not args.no_exiftool
 
     input_paths = [os.path.normpath(p) for p in args.input_paths]
 
@@ -184,10 +198,18 @@ def main():
 
     if args.mov:
         mov_files = find_files(input_paths, '*.mov', '*.MOV')
+
+        if g_config_verbose:
+            print(f'Found {len(mov_files)} mov file(s)')
+
         process_files(mov_files, mov_creation_date, 'mov')
 
     if args.jpg:
         jpg_files = find_files(input_paths, '*.jpg', '*.jpeg', '*.JPG', '*.JPEG')
+
+        if g_config_verbose:
+            print(f'Found {len(jpg_files)} JPEG file(s)')
+
         process_files(jpg_files, jpg_creation_date, 'jpg')
 
 main()
