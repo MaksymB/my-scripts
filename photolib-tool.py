@@ -15,10 +15,9 @@ g_config_in_place = False
 g_config_dry_run = False
 g_config_exiftool = True
 
-def mov_creation_date(file_path):
-    if g_config_exiftool:
+def get_date_by_exiftool(file_path, date_name):
         output = subprocess.check_output(['exiftool',
-                                          '-time:CreationDate',
+                                          f'-time:{date_name}',
                                           file_path])
         substrs = output.split(b': ')
 
@@ -35,6 +34,14 @@ def mov_creation_date(file_path):
             return None
 
         return substrs2[0].strip().decode("utf-8").replace(':', '-')
+def mov_creation_date(file_path):
+    if g_config_exiftool:
+        creation_date = get_date_by_exiftool(file_path, 'CreationDate')
+        if creation_date:
+            return creation_date
+
+        return get_date_by_exiftool(file_path, 'CreateDate')
+
 
     ATOM_HEADER_SIZE = 8
 
