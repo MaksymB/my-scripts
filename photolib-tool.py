@@ -11,7 +11,6 @@ import subprocess
 import sys
 
 g_config_verbose = False
-g_config_in_place = False
 g_config_dry_run = False
 g_config_exiftool = True
 
@@ -118,7 +117,7 @@ def find_files(input_paths, *masks):
                                   in glob.iglob(input_dir + '/**/' + mask,
                                                 recursive=True)]
 
-def process_files(input_files, extract_creation_date, ext):
+def process_files(input_files, extract_creation_date, ext, output_path):
     all_files = {}
 
     processed_files_count = 0
@@ -146,18 +145,22 @@ def process_files(input_files, extract_creation_date, ext):
 
             suffix = f' ({count})' if count > 0 else ''
 
-            if g_config_in_place:
+            if output_path:
+                if not os.path.exists(output_path):
+                    os.mkdir(output_path)
+
+                output_file_path = os.path.join(output_path,
+                                                f'{creation_date}{suffix}.{ext}')
+            else:
                 output_file_path = os.path.join(dir_path,
                                                 f'{creation_date}{suffix}.{ext}')
 
-                if os.path.exists(output_file_path):
-                    if input_file_path != output_file_path:
-                        print(f'Cannot move {input_file_path} to {output_file_path}')
-                else:
-                    move_file(input_file_path, output_file_path)
-                    processed_files_count += 1
+            if os.path.exists(output_file_path):
+                if input_file_path != output_file_path:
+                    print(f'Cannot move {input_file_path} to {output_file_path}')
             else:
-                print('Error: out-of-place modification is not implemented')
+                move_file(input_file_path, output_file_path)
+                processed_files_count += 1
 
             count += 1
 
@@ -165,7 +168,6 @@ def process_files(input_files, extract_creation_date, ext):
 
 def main():
     global g_config_verbose
-    global g_config_in_place
     global g_config_dry_run
     global g_config_exiftool
 
@@ -180,17 +182,23 @@ def main():
                         help='process .jpg files')
     parser.add_argument('--verbose', action="store_true", default=g_config_verbose,
                         help='verbose output')
-    parser.add_argument('--in-place', action="store_true", default=g_config_in_place,
+    parser.add_argument('--in-place', action="store_true", default=False,
                         help='put output files next to the input files')
     parser.add_argument('--dry', action="store_true", default=g_config_dry_run,
                         help='dry run, print what is going to be done and exit')
     parser.add_argument('--no-exiftool', action="store_true", default=not g_config_exiftool,
                         help='don\'t use system exiftool (if not installed)')
+    parser.add_argument('--output', action="store", dest="output_dir", type=str,
+                        help='the output directory path')
 
     args = parser.parse_args()
 
+    if (not args.output_dir) == (not args.in_place):
+        print("error: one (and only one) of the following arguments is required:",
+              "--in-place, --output")
+        sys.exit(0)
+
     g_config_verbose = args.verbose
-    g_config_in_place = args.in_place
     g_config_dry_run = args.dry
     g_config_exiftool = not args.no_exiftool
 
@@ -209,7 +217,7 @@ def main():
         if g_config_verbose:
             print(f'Found {len(mov_files)} mov file(s)')
 
-        process_files(mov_files, mov_creation_date, 'mov')
+        process_files(mov_files, mov_creation_date, 'mov', args.output_dir)
 
     if args.jpg:
         jpg_files = find_files(input_paths, '*.jpg', '*.jpeg', '*.JPG', '*.JPEG')
@@ -217,6 +225,6 @@ def main():
         if g_config_verbose:
             print(f'Found {len(jpg_files)} JPEG file(s)')
 
-        process_files(jpg_files, jpg_creation_date, 'jpg')
+        process_files(jpg_files, jpg_creation_date, 'jpg', args.output_dir)
 
 main()
