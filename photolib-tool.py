@@ -177,9 +177,9 @@ def main():
     parser.add_argument('input_paths', metavar='input-path', type=str, nargs='+',
                         help='a directory with photos')
     parser.add_argument('--mov', action="store_true", default=False,
-                        help='process .mov files')
+                        help='process only .mov files')
     parser.add_argument('--jpg', action="store_true", default=False,
-                        help='process .jpg files')
+                        help='process only .jpg files')
     parser.add_argument('--verbose', action="store_true", default=g_config_verbose,
                         help='verbose output')
     parser.add_argument('--in-place', action="store_true", default=False,
@@ -211,7 +211,9 @@ def main():
         for bad_input_dir in bad_input_paths:
             print(f"  - {bad_input_dir}")
 
-    if args.mov:
+    all_formats = not args.mov or not args.jpg
+
+    if args.mov or all_formats:
         mov_files = find_files(input_paths, '*.mov', '*.MOV')
 
         if g_config_verbose:
@@ -219,7 +221,7 @@ def main():
 
         process_files(mov_files, mov_creation_date, 'mov', args.output_dir)
 
-    if args.jpg:
+    if args.jpg or all_formats:
         jpg_files = find_files(input_paths, '*.jpg', '*.jpeg', '*.JPG', '*.JPEG')
 
         if g_config_verbose:
