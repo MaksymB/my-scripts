@@ -15,24 +15,25 @@ g_config_dry_run = False
 g_config_exiftool = True
 
 def get_date_by_exiftool(file_path, date_name):
-        output = subprocess.check_output(['exiftool',
-                                          f'-time:{date_name}',
-                                          file_path])
-        substrs = output.split(b': ')
+    output = subprocess.check_output(['exiftool',
+                                      f'-time:{date_name}',
+                                      file_path])
+    substrs = output.split(b': ')
 
-        if len(substrs) != 2:
-            if g_config_verbose:
-                print("Can't parse exiftool output. Make sure it is installed")
-            return None
+    if len(substrs) != 2:
+        if g_config_verbose:
+            print("Can't parse exiftool output. Make sure it is installed")
+        return None
 
-        substrs2 = substrs[1].split(b'+')
+    substrs2 = substrs[1].split(b'+')
 
-        if len(substrs2) != 2 and len(substrs2) != 1:
-            if g_config_verbose:
-                print("Can't parse exiftool output. Make sure it is installed")
-            return None
+    if len(substrs2) != 2 and len(substrs2) != 1:
+        if g_config_verbose:
+            print("Can't parse exiftool output. Make sure it is installed")
+        return None
 
-        return substrs2[0].strip().decode("utf-8").replace(':', '-')
+    return substrs2[0].strip().decode("utf-8").replace(':', '-')
+
 def mov_creation_date(file_path):
     if g_config_exiftool:
         creation_date = get_date_by_exiftool(file_path, 'CreationDate')
