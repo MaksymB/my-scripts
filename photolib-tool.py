@@ -36,6 +36,10 @@ def get_date_by_exiftool(file_path, date_name):
 
 def mov_creation_date(file_path):
     if g_config_exiftool:
+        original_Date_time = get_date_by_exiftool(file_path, 'DateTimeOriginal')
+        if original_Date_time:
+            return original_Date_time
+
         creation_date = get_date_by_exiftool(file_path, 'CreationDate')
         if creation_date:
             return creation_date
