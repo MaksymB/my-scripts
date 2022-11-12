@@ -110,9 +110,12 @@ def jpg_creation_date(file_path):
     return None
 
 def move_file(source, target):
-    print(f'{source} -> {target}')
-    if not g_config_dry_run:
-        shutil.move(source, target)
+    if not os.path.exists(target):
+        print(f'{source} -> {target}')
+        if not g_config_dry_run:
+            shutil.move(source, target)
+    else:
+        print(f'Cannot move {source} to {target}')
 
 def find_files(input_paths, *masks):
     return list(filter(lambda p: os.path.isfile(p), input_paths)) + \
