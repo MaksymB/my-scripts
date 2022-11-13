@@ -10,9 +10,11 @@ import struct
 import subprocess
 import sys
 
-g_config_verbose = False
-g_config_dry_run = False
+g_config_verbose  = False
+g_config_dry_run  = False
 g_config_exiftool = True
+g_config_ffprobe  = False
+g_config_dune     = False
 
 def get_date_by_exiftool(file_path, date_name):
     output = subprocess.check_output(['exiftool',
@@ -34,7 +36,80 @@ def get_date_by_exiftool(file_path, date_name):
 
     return substrs2[0].strip().decode("utf-8").replace(':', '-')
 
+def get_date_by_ffprobe(file_path):
+    output = subprocess.check_output(['ffprobe',
+                                      '-v', 'quiet',
+                                      '-select_streams', 'v:0',
+                                      '-show_entries', 'stream_tags=creation_time',
+                                      '-of', 'default=noprint_wrappers=1:nokey=1',
+                                      file_path])
+
+    try:
+        # Convert from b'2016-03-09T05:47:50.000000Z\n'
+        #           to '2016-03-09 05:47:50'
+        return output.split(b'.')[0].decode("utf-8").replace(':', '-').replace('T', ' ')
+    except Exception as e:
+        return None
+
+def get_rotation_by_ffprobe(file_path):
+    output = subprocess.check_output(['ffprobe',
+                                      '-v', 'quiet',
+                                      '-select_streams', 'v',
+                                      '-show_entries', 'stream_side_data=rotation',
+                                      '-of', 'default=noprint_wrappers=1:nokey=1',
+                                      file_path])
+    return output.decode("utf-8").strip()
+
+def get_codec_by_ffprobe(file_path, stream_name):
+    output = subprocess.check_output(['ffprobe',
+                                      '-v', 'quiet',
+                                      '-select_streams', stream_name,
+                                      '-show_entries', 'stream=codec_name',
+                                      '-of', 'default=noprint_wrappers=1:nokey=1',
+                                      file_path])
+    return output.decode("utf-8").strip()
+
+def fix_by_ffmpeg(source, target):
+    if not os.path.exists(target):
+        audio_codec = get_codec_by_ffprobe(source, 'a')
+        video_codec = get_codec_by_ffprobe(source, 'v')
+        rotation = get_rotation_by_ffprobe(source)
+
+        fix_audio = False
+        fix_video = False
+        audio_settings = ['-codec:a', 'copy']
+        video_settings = ['-codec:v', 'copy']
+        if audio_codec == "pcm_s16le":
+            audio_settings = ['-codec:a', 'aac']
+            fix_audio = True
+
+        if rotation != "":
+            if video_codec == 'h264':
+                video_settings = ['-codec:v', 'libx264', '-crf', '18', '-preset', 'slow']
+                fix_video = True
+            else:
+                print("WARNING: rotation is needed but codec is not h264")
+
+        if not fix_video and not fix_audio:
+            return False
+
+        print(f'{source} -> {target} [Audio fix: {fix_audio}, video fix: {fix_video}]')
+
+        if not g_config_dry_run:
+            subprocess.check_output(['ffmpeg',
+                                     '-hide_banner',
+                                     '-loglevel', 'error',
+                                     '-i', source,
+                                     '-map_metadata', '0'] + audio_settings + video_settings + [target])
+        return True
+    else:
+        print(f'Cannot move {source} to {target}')
+        return False
+
 def mov_creation_date(file_path):
+    if g_config_ffprobe:
+        return get_date_by_ffprobe(file_path)
+
     if g_config_exiftool:
         original_Date_time = get_date_by_exiftool(file_path, 'DateTimeOriginal')
         if original_Date_time:
@@ -110,12 +185,9 @@ def jpg_creation_date(file_path):
     return None
 
 def move_file(source, target):
-    if not os.path.exists(target):
-        print(f'{source} -> {target}')
-        if not g_config_dry_run:
-            shutil.move(source, target)
-    else:
-        print(f'Cannot move {source} to {target}')
+    print(f'{source} -> {target}')
+    if not g_config_dry_run:
+        shutil.move(source, target)
 
 def find_files(input_paths, *masks):
     return list(filter(lambda p: os.path.isfile(p), input_paths)) + \
@@ -125,7 +197,7 @@ def find_files(input_paths, *masks):
                                   in glob.iglob(input_dir + '/**/' + mask,
                                                 recursive=True)]
 
-def process_files(input_files, extract_creation_date, ext, output_path):
+def process_files(input_files, extract_creation_date, ext, output_path, fix_av_codecs):
     all_files = {}
 
     processed_files_count = 0
@@ -163,11 +235,19 @@ def process_files(input_files, extract_creation_date, ext, output_path):
                 output_file_path = os.path.join(dir_path,
                                                 f'{creation_date}{suffix}.{ext}')
 
+
             if os.path.exists(output_file_path):
                 if input_file_path != output_file_path:
                     print(f'Cannot move {input_file_path} to {output_file_path}')
             else:
-                move_file(input_file_path, output_file_path)
+                if fix_av_codecs:
+                    if fix_by_ffmpeg(input_file_path, output_file_path):
+                        move_file(input_file_path, output_file_path + '.orig')
+                    else:
+                        move_file(input_file_path, output_file_path)
+                else:
+                    move_file(input_file_path, output_file_path)
+
                 processed_files_count += 1
 
             count += 1
@@ -178,6 +258,8 @@ def main():
     global g_config_verbose
     global g_config_dry_run
     global g_config_exiftool
+    global g_config_ffprobe
+    global g_config_dune
 
     parser = argparse.ArgumentParser(
         description='My photo library maintenance tool')
@@ -196,6 +278,10 @@ def main():
                         help='dry run, print what is going to be done and exit')
     parser.add_argument('--no-exiftool', action="store_true", default=not g_config_exiftool,
                         help='don\'t use system exiftool (if not installed)')
+    parser.add_argument('--ffprobe', action="store_true", default=g_config_ffprobe,
+                        help='use system ffprobe tool')
+    parser.add_argument('--dune', action="store_true", default=g_config_dune,
+                        help='convert mov files to be playable by Dune HD H1 player')
     parser.add_argument('--output', action="store", dest="output_dir", type=str,
                         help='the output directory path')
 
@@ -209,6 +295,8 @@ def main():
     g_config_verbose = args.verbose
     g_config_dry_run = args.dry
     g_config_exiftool = not args.no_exiftool
+    g_config_ffprobe = args.ffprobe
+    g_config_dune = args.dune
 
     input_paths = [os.path.normpath(p) for p in args.input_paths]
 
@@ -227,7 +315,7 @@ def main():
         if g_config_verbose:
             print(f'Found {len(mov_files)} mov file(s)')
 
-        process_files(mov_files, mov_creation_date, 'mov', args.output_dir)
+        process_files(mov_files, mov_creation_date, 'mov', args.output_dir, g_config_dune)
 
     if args.jpg or all_formats:
         jpg_files = find_files(input_paths, '*.jpg', '*.jpeg', '*.JPG', '*.JPEG')
@@ -235,6 +323,6 @@ def main():
         if g_config_verbose:
             print(f'Found {len(jpg_files)} JPEG file(s)')
 
-        process_files(jpg_files, jpg_creation_date, 'jpg', args.output_dir)
+        process_files(jpg_files, jpg_creation_date, 'jpg', args.output_dir, False)
 
 main()
