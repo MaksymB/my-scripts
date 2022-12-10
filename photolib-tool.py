@@ -15,19 +15,22 @@ g_config_dry_run  = False
 g_config_exiftool = True
 g_config_ffprobe  = False
 g_config_dune     = False
+g_config_skip_dune = False
+g_config_conversion_preset = "slow"
 
 def get_date_by_exiftool(file_path, date_name):
     output = subprocess.check_output(['exiftool',
+                                      '-ee',
                                       f'-time:{date_name}',
                                       file_path])
     substrs = output.split(b': ')
 
-    if len(substrs) != 2:
+    if len(substrs) < 2:
         if g_config_verbose:
             print("Can't parse exiftool output. Make sure it is installed")
         return None
 
-    substrs2 = substrs[1].split(b'+')
+    substrs2 = substrs[1][:19].split(b'+')
 
     if len(substrs2) != 2 and len(substrs2) != 1:
         if g_config_verbose:
@@ -69,7 +72,7 @@ def get_codec_by_ffprobe(file_path, stream_name):
                                       file_path])
     return output.decode("utf-8").strip()
 
-def fix_by_ffmpeg(source, target):
+def fix_by_ffmpeg(source, target, skip_video_conversion=False):
     if not os.path.exists(target):
         audio_codec = get_codec_by_ffprobe(source, 'a')
         video_codec = get_codec_by_ffprobe(source, 'v')
@@ -83,12 +86,18 @@ def fix_by_ffmpeg(source, target):
             audio_settings = ['-codec:a', 'aac']
             fix_audio = True
 
+        if video_codec != 'h264':
+            print(f'WARNING: codec is not h264. Codec is {video_codec}')
+
         if rotation != "":
-            if video_codec == 'h264':
-                video_settings = ['-codec:v', 'libx264', '-crf', '18', '-preset', 'slow']
-                fix_video = True
+            print(f'WARNING: rotation detected {rotation}')
+
+        if rotation != "" or video_codec != 'h264':
+            if skip_video_conversion:
+                return True
             else:
-                print("WARNING: rotation is needed but codec is not h264")
+                video_settings = ['-codec:v', 'libx264', '-crf', '18', '-preset', g_config_conversion_preset]
+                fix_video = True
 
         if not fix_video and not fix_audio:
             return False
@@ -101,6 +110,15 @@ def fix_by_ffmpeg(source, target):
                                      '-loglevel', 'error',
                                      '-i', source,
                                      '-map_metadata', '0'] + audio_settings + video_settings + [target])
+
+            subprocess.check_output(['exiftool',
+                                     '-ee',
+                                     '-tagsfromfile', source,
+                                     '-gps*',
+                                     target])
+
+            move_file(source, target + '.orig.mov')
+
         return True
     else:
         print(f'Cannot move {source} to {target}')
@@ -202,14 +220,21 @@ def process_files(input_files, extract_creation_date, ext, output_path, fix_av_c
 
     processed_files_count = 0
 
+    checked_files_count = 0
     for input_file_path in input_files:
         creation_date = extract_creation_date(input_file_path)
         if not creation_date in all_files:
             all_files[creation_date] = []
         all_files[creation_date].append(
             (input_file_path, os.path.getsize(input_file_path)))
+        checked_files_count += 1
+        print(f'{checked_files_count}/{len(input_files)} checked')
 
+    files_count = 0
     for (creation_date, same_creation_date_files) in all_files.items():
+        files_count += 1
+        print(f'[{files_count}/{len(all_files.items())}] {input_file_path}')
+
         if not creation_date:
             for (input_file_path, _) in same_creation_date_files:
                 print(f'Warning: unknown creation date: {input_file_path}')
@@ -241,9 +266,7 @@ def process_files(input_files, extract_creation_date, ext, output_path, fix_av_c
                     print(f'Cannot move {input_file_path} to {output_file_path}')
             else:
                 if fix_av_codecs:
-                    if fix_by_ffmpeg(input_file_path, output_file_path):
-                        move_file(input_file_path, output_file_path + '.orig')
-                    else:
+                    if not fix_by_ffmpeg(input_file_path, output_file_path, g_config_skip_dune):
                         move_file(input_file_path, output_file_path)
                 else:
                     move_file(input_file_path, output_file_path)
@@ -260,6 +283,8 @@ def main():
     global g_config_exiftool
     global g_config_ffprobe
     global g_config_dune
+    global g_config_skip_dune
+    global g_config_conversion_preset
 
     parser = argparse.ArgumentParser(
         description='My photo library maintenance tool')
@@ -282,6 +307,10 @@ def main():
                         help='use system ffprobe tool')
     parser.add_argument('--dune', action="store_true", default=g_config_dune,
                         help='convert mov files to be playable by Dune HD H1 player')
+    parser.add_argument('--skip-dune', action="store_true", default=g_config_skip_dune,
+                        help='skip files that cannot be playable by Dune HD H1 player')
+    parser.add_argument('--preset', action="store", dest="preset", type=str,
+                        help='video conversion preset for Dune HD H1 player')
     parser.add_argument('--output', action="store", dest="output_dir", type=str,
                         help='the output directory path')
 
@@ -296,7 +325,14 @@ def main():
     g_config_dry_run = args.dry
     g_config_exiftool = not args.no_exiftool
     g_config_ffprobe = args.ffprobe
-    g_config_dune = args.dune
+    g_config_dune = args.dune or args.skip_dune
+    g_config_skip_dune = args.skip_dune
+
+    if args.preset != None:
+        g_config_conversion_preset = args.preset
+
+    if g_config_dune:
+        print(f'Video conversion preset: {g_config_conversion_preset}')
 
     input_paths = [os.path.normpath(p) for p in args.input_paths]
 
