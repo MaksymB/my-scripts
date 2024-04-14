@@ -1,4 +1,4 @@
-#!/usr/local/bin/python3
+#!/usr/bin/python3
 
 import argparse
 import datetime
@@ -16,7 +16,7 @@ g_config_exiftool = True
 g_config_ffprobe  = False
 g_config_dune     = False
 g_config_skip_dune = False
-g_config_conversion_preset = "slow"
+g_config_conversion_preset = "fast"
 
 def get_date_by_exiftool(file_path, date_name):
     output = subprocess.check_output(['exiftool',
@@ -82,7 +82,7 @@ def fix_by_ffmpeg(source, target, skip_video_conversion=False):
         fix_video = False
         audio_settings = ['-codec:a', 'copy']
         video_settings = ['-codec:v', 'copy']
-        if audio_codec == "pcm_s16le":
+        if audio_codec != "aac":
             audio_settings = ['-codec:a', 'aac']
             fix_audio = True
 
@@ -346,7 +346,7 @@ def main():
     all_formats = not args.mov or not args.jpg
 
     if args.mov or all_formats:
-        mov_files = find_files(input_paths, '*.mov', '*.MOV', '*.mp4', '*.MP4')
+        mov_files = find_files(input_paths, '*.mov', '*.MOV', '*.mp4', '*.MP4', '*.3gp', '*.3GP')
 
         if g_config_verbose:
             print(f'Found {len(mov_files)} mov file(s)')
