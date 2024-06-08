@@ -346,7 +346,7 @@ def main():
     all_formats = not args.mov or not args.jpg
 
     if args.mov or all_formats:
-        mov_files = find_files(input_paths, '*.mov', '*.MOV', '*.mp4', '*.MP4', '*.3gp', '*.3GP')
+        mov_files = find_files(input_paths, '*.mov', '*.MOV', '*.mp4', '*.MP4', '*.3gp', '*.3GP', '*.MTS', '*.mts')
 
         if g_config_verbose:
             print(f'Found {len(mov_files)} mov file(s)')
