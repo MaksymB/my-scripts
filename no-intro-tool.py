@@ -108,7 +108,7 @@ def build_game_dict(root, args):
                     sections = [details.attrib.get('section')]
                     file_info = {
                         'format': format,
-                        'expected_name': force_file_name if force_file_name else full_name + '.' + ext,
+                        'expected_name': force_file_name if force_file_name else full_name if ext == None else full_name + '.' + ext,
                         'file_size': file_size,
                         'regions': [r for r in regions if r != CONST_UNKNOWN_REGION],
                         'sections': [s for s in sections if s != None],
