@@ -119,7 +119,7 @@ def import_games(games_data_to_import, games_data, dry):
                 if not dry:
                     os.makedirs(target_game_dir, exist_ok=False)
                 for f in gd_db.files:
-                    from_path = get_import_file_path(gd_import, f.sha1)
+                    from_path = get_import_file_path(gd_import, f.sha1, f.name)
                     to_path = os.path.join(target_game_dir, f.name)
                     print(f"- {from_path}")
                     print(f"  -> {to_path}")
@@ -161,7 +161,7 @@ def try_to_rename_the_game_during_import(gd_db, gd_import, dry):
             target_cue_fpath = to_path
         else:
             target_bins_hashes[f.sha1] = to_path
-            from_path = get_import_file_path(gd_import, f.sha1)
+            from_path = get_import_file_path(gd_import, f.sha1, f.name)
             if from_path == None:
                 print(f"NOT FOUND: {f.sha1}")
                 print(f"INFO: there is no one-to-one match in bin files.")
@@ -187,6 +187,8 @@ def try_to_rename_the_game_during_import(gd_db, gd_import, dry):
         print("Failed to modify '.cue' file")
         print(f"  - Expected SHA1: {target_cue_sha1}")
         print(f"  - Actual SHA1:   {modified_cue_sha1}")
+        with open(orig_cue_fpath + '_new', 'wb') as file:
+            file.write(modified_cue_content)
         return False
 
     if set(target_bins_hashes) == set(bins_to_import_hashes):
@@ -231,10 +233,17 @@ def get_cue_file_path(gd_import):
             return os.path.join(gd_import.description, f.name)
     return None
 
-def get_import_file_path(gd_import, sha1):
-    for f in gd_import.files:
-        if sha1 == f.sha1:
-            return os.path.join(gd_import.description, f.name)
+def get_import_file_path(gd_import, sha1, name):
+    candidates = [f for f in gd_import.files if f.sha1 == sha1]
+
+    if len(candidates) > 1:
+        names = [f.name for f in candidates]
+        close_matches = difflib.get_close_matches(name, names)
+        candidates = [f for f in candidates if f.name == close_matches[0]]
+
+    if len(candidates) == 1:
+        return os.path.join(gd_import.description, candidates[0].name)
+
     return None
 
 def find_db_export_archive(directory):

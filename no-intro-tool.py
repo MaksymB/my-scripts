@@ -6,6 +6,7 @@ import os
 import shutil
 import xml.etree.ElementTree as ET
 import zipfile
+import difflib
 
 CONST_UNKNOWN_REGION = 'Unknown'
 CONST_BAD_ROM = 'Bad'
@@ -91,6 +92,7 @@ def build_game_dict(root, args):
                 for file in source.findall('file'):
                     format = file.attrib.get('format')
                     file_size = int(file.attrib.get('size'))
+                    file_item = file.attrib.get('item')
                     ext = file.attrib.get('extension')
                     force_file_name = file.attrib.get('forcename')
                     if force_file_name:
@@ -108,7 +110,7 @@ def build_game_dict(root, args):
                     sections = [details.attrib.get('section')]
                     file_info = {
                         'format': format,
-                        'expected_name': force_file_name if force_file_name else full_name if ext == None else full_name + '.' + ext,
+                        'expected_name': full_name,
                         'file_size': file_size,
                         'regions': [r for r in regions if r != CONST_UNKNOWN_REGION],
                         'sections': [s for s in sections if s != None],
@@ -116,6 +118,17 @@ def build_game_dict(root, args):
                         'package_path': None,
                         'file_name': None,
                     }
+
+                    if force_file_name:
+                        file_info['expected_name'] = force_file_name
+                    else:
+                        n = full_name
+                        if file_item != None:
+                            n = f"{n} ({file_item})"
+                        if ext != None:
+                            n = f"{n}.{ext}"
+                        file_info['expected_name'] = n
+
                     if not sha1 in game_dict[game_id]['files']:
                         game_dict[game_id]['files'][sha1] = file_info
                     else:
@@ -141,10 +154,9 @@ def build_game_dict(root, args):
                             print(f"  - ({fi['rominfo']}/{file_info['rominfo']})\n")
                             fi['rominfo'] += "/" + file_info['rominfo']
                     if not sha1 in sha1_to_game_id:
-                        sha1_to_game_id[sha1] = game_id
+                        sha1_to_game_id[sha1] = [game_id]
                     elif sha1_to_game_id[sha1] != game_id:
-                        print("WARNING: same ROM belongs to different games.")
-                        print(f"  - sha1: {sha1}\n")
+                        sha1_to_game_id[sha1].append(game_id)
 
     bad_clones = 0
     bad_clone_sources = 0
@@ -194,13 +206,20 @@ def test_roms_package(package_path, sha1_to_game_id, game_dict):
                 sha1 = compute_sha1(file_data)
                 tested_roms_count += 1
                 if sha1 in sha1_to_game_id:
-                    info = game_dict[sha1_to_game_id[sha1]]
+                    actual_file_name = os.path.basename(zip_info.filename)
+                    game_ids = sha1_to_game_id[sha1]
+                    game_id = game_ids[0]
+                    if len(game_ids) > 1:
+                        ns = dict([(info['files'][sha1]['expected_name'], id) for id, info in game_dict.items() if id in game_ids])
+                        close_matches = difflib.get_close_matches(actual_file_name, ns.keys())
+                        game_id = ns[close_matches[0]]
+
+                    info = game_dict[game_id]
 
                     # Update game's file info
                     info['files'][sha1]['package_path'] = package_path
                     info['files'][sha1]['file_name'] = zip_info.filename
 
-                    actual_file_name = os.path.basename(zip_info.filename)
                     expected_file_name = info['files'][sha1]['expected_name']
 
                     if actual_file_name == expected_file_name:
