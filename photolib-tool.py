@@ -78,21 +78,26 @@ def fix_by_ffmpeg(source, target, skip_video_conversion=False):
         video_codec = get_codec_by_ffprobe(source, 'v')
         rotation = get_rotation_by_ffprobe(source)
 
+        # Files with codecs that contain '\n' are written by Panasonic camera
+        dune_video_codecs = ['h264', 'h264\nh264']
+        dune_audio_codecs = ['aac', 'ac3\nac3']
+
         fix_audio = False
         fix_video = False
         audio_settings = ['-codec:a', 'copy']
         video_settings = ['-codec:v', 'copy']
-        if audio_codec != "aac":
+        if not audio_codec in dune_audio_codecs:
+            print(f"WARNING: audio codec is not {dune_audio_codecs}. Codec is '{audio_codec}'")
             audio_settings = ['-codec:a', 'aac']
             fix_audio = True
 
-        if video_codec != 'h264':
-            print(f'WARNING: codec is not h264. Codec is {video_codec}')
+        if not video_codec in dune_video_codecs:
+            print(f"WARNING: video codec is not {dune_video_codecs}. Codec is '{video_codec}'")
 
         if rotation != "":
             print(f'WARNING: rotation detected {rotation}')
 
-        if rotation != "" or video_codec != 'h264':
+        if rotation != "" or not video_codec in dune_video_codecs:
             if skip_video_conversion:
                 return True
             else:
