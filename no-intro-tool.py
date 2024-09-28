@@ -28,7 +28,7 @@ LICENSES = {
 PRIORITY_REGIONS = ['USA', 'Japan', 'Europe']
 
 def find_db_export_archive(directory):
-    db_archives = list(filter(lambda p : p.endswith(".zip"), os.listdir(directory)))
+    db_archives = list(filter(lambda p : p.endswith(".zip") and "(DB Export)" in p, os.listdir(directory)))
 
     if len(db_archives) == 0:
         raise FileNotFoundError("DB arhive not found.")
@@ -41,6 +41,21 @@ def find_db_export_archive(directory):
         print(f"The most recent will be used: {db_archives[0]}\n")
 
     return os.path.join(directory, db_archives[0])
+
+def find_private_dat_archive(directory):
+    dat_archives = list(filter(lambda p : p.endswith(".zip") and "(Private)" in p, os.listdir(directory)))
+
+    if len(dat_archives) == 0:
+        return None
+
+    if len(dat_archives) > 1:
+        dat_archives.sort(reverse = True)
+        print(f"WARNING: More than one private dat archive found:")
+        for dat_archive in dat_archives:
+            print(f"  - {dat_archive}")
+        print(f"The most recent will be used: {dat_archives[0]}\n")
+
+    return os.path.join(directory, dat_archives[0])
 
 def extract_xml_from_archive(archive_path):
     with zipfile.ZipFile(archive_path, 'r') as zip_ref:
@@ -212,7 +227,10 @@ def test_roms_package(package_path, sha1_to_game_id, game_dict):
                     if len(game_ids) > 1:
                         ns = dict([(info['files'][sha1]['expected_name'], id) for id, info in game_dict.items() if id in game_ids])
                         close_matches = difflib.get_close_matches(actual_file_name, ns.keys())
-                        game_id = ns[close_matches[0]]
+                        if len(close_matches) > 0:
+                            game_id = ns[close_matches[0]]
+                        else:
+                            game_id = list(ns.values())[0]
 
                     info = game_dict[game_id]
 
@@ -279,6 +297,7 @@ def main():
     args = parser.parse_args()
 
     archive_path = find_db_export_archive(os.path.join(args.directory, '.db'))
+    private_dat_archive_path = find_private_dat_archive(os.path.join(args.directory, '.db'))
     xml_content = extract_xml_from_archive(archive_path)
     root = parse_xml(xml_content)
 
@@ -354,20 +373,25 @@ def main():
         tested_roms_count = 0
         unknown_roms_count = 0
         wrong_rom_names_count = 0
+        private_packages_ignored = 0
 
         for root, dirs, files in os.walk(args.directory):
             dirs[:] = [d for d in dirs if d != '.db']
             for file in files:
                 if file.endswith('.zip'):
                     zip_path = os.path.join(root, file)
-                    trc, urc, wrc = test_roms_package(zip_path, sha1_to_game_id, game_dict)
+                    if not "Private" in file:
+                        trc, urc, wrc = test_roms_package(zip_path, sha1_to_game_id, game_dict)
+                    else:
+                        private_packages_ignored += 1
                     tested_roms_count += trc
                     unknown_roms_count += urc
                     wrong_rom_names_count += wrc
 
-        print(f"Tested roms:         {tested_roms_count}")
-        print(f"  - Unknown roms:    {unknown_roms_count}")
-        print(f"  - Wrong rom names: {wrong_rom_names_count}")
+        print(f"Tested roms:          {tested_roms_count}")
+        print(f"  - Unknown roms:     {unknown_roms_count}")
+        print(f"  - Wrong rom names:  {wrong_rom_names_count}")
+        print(f"  - Ignored packages: {private_packages_ignored}")
         print()
 
 
