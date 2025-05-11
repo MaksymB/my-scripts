@@ -4,9 +4,59 @@ import argparse
 import hashlib
 import os
 import shutil
+import struct
 import xml.etree.ElementTree as ET
 import zipfile
 import difflib
+
+######### python-ips ##########################################################
+## A slightly modified piece of python-ips from here:
+## https://github.com/meunierd/python-ips
+##
+def apply_patch(patchpath, filepath):
+    patch_size = os.path.getsize(patchpath)
+    patchfile = open(patchpath, 'rb')
+    target = open(filepath, 'r+b')
+
+    if patchfile.read(5) != b'PATCH':
+        raise Exception('Invalid patch header.')
+
+    def unpack_int(s):
+        (ret,) = struct.unpack_from('>I', b'\x00' * (4 - len(s)) + s)
+        return ret
+
+    # Read First Record
+    r = patchfile.read(3)
+    while patchfile.tell() not in [patch_size, patch_size - 3]:
+        # Unpack 3-byte pointers.
+        offset = unpack_int(r)
+        # Read size of data chunk
+        r = patchfile.read(2)
+        size = unpack_int(r)
+
+        if size == 0:  # RLE Record
+            r = patchfile.read(2)
+            rle_size = unpack_int(r)
+            data = patchfile.read(1) * rle_size
+        else:
+            data = patchfile.read(size)
+
+        if offset >= 0:
+            # Write to file
+            target.seek(offset)
+            target.write(data)
+        # Read Next Record
+        r = patchfile.read(3)
+
+    if patch_size - 3 == patchfile.tell():
+        trim_size = unpack_int(patchfile.read(3))
+        target.truncate(trim_size)
+
+    # Cleanup
+    target.close()
+    patchfile.close()
+
+##########################################
 
 CONST_UNKNOWN_REGION = 'Unknown'
 CONST_BAD_ROM = 'Bad'
@@ -266,6 +316,8 @@ def export_file(package_path, file_name, export_dir, export_file_name):
             with open(export_file_path, 'wb') as target_file:
                 target_file.write(source_file.read())
 
+    return export_file_path
+
 def get_main_reg_subdir(regions, rest_of_the_world):
     if 'World' in regions:
         return PRIORITY_REGIONS[0]
@@ -278,6 +330,7 @@ def main():
     parser = argparse.ArgumentParser(description="Command line tool to read and manipulate XML metadata from a DB Export archive.")
     parser.add_argument('directory', type=str, help="Path to the directory containing the archive")
     parser.add_argument('--export', type=str, help="Export all known ROMs to the given directory.")
+    parser.add_argument('--patch', type=str, help="Patch roms by the given list of patches.")
     parser.add_argument('--split-by-abc', action='store_true', help="Sort ROMs into ABC directories on export.")
     parser.add_argument('--split-by-license', action='store_true', help="Sort ROMs into Licensed/Unlicensed directories on export.")
     parser.add_argument('--split-by-size-32mb', action='store_true', help="Sort ROMs into Small/Large directories on export.")
@@ -369,7 +422,7 @@ def main():
             print(f"  - {lang} {' ' * (20 - len(lang))}: {count}")
         print()
 
-    if args.test_packages or args.export:
+    if args.test_packages or args.export or args.patch:
         tested_roms_count = 0
         unknown_roms_count = 0
         wrong_rom_names_count = 0
@@ -394,6 +447,29 @@ def main():
         print(f"  - Ignored packages: {private_packages_ignored}")
         print()
 
+
+    if args.patch:
+        tree = ET.parse(args.patch)
+        root = tree.getroot()
+        output = root.find('output').text
+
+        # Iterate through each <rom> element
+        for rom in root.findall('rom'):
+            sha1 = rom.find('sha1').text
+            patch = rom.find('patch').text
+            print(f"SHA1: {sha1}, Patch: {patch}")
+            if sha1 in sha1_to_game_id:
+                info = game_dict[sha1_to_game_id[sha1][0]]
+                for file_sha1, f in info['files'].items():
+                    if file_sha1 == sha1:
+                        target_name, target_ext = os.path.splitext(f['expected_name'])
+                        patch_name, _ = os.path.splitext(os.path.basename(patch))
+                        patched_file_name = f"{target_name} ({patch_name}){target_ext}"
+                        print("Patching: ", patched_file_name)
+                        exported_file = export_file(f['package_path'], f['file_name'], output, patched_file_name)
+                        apply_patch(patch, exported_file)
+            else:
+                print("Not found: ", sha1)
 
     if args.export:
         export_path = args.export
